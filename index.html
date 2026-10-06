@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SVG 图片批量查看工具</title>
+<style>
+  :root{
+    --bg:#14161a; --panel:#1c1f25; --panel-2:#22262e; --line:#2e333c;
+    --text:#e7eaf0; --muted:#9aa3b2; --accent:#4c8dff; --accent-soft:rgba(76,141,255,.14);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 "Microsoft YaHei","PingFang SC",system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  button{font:inherit;cursor:pointer}
+
+  /* ---------- 引导页 ---------- */
+  #landing{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center}
+  #landing h1{font-size:26px;margin:0}
+  #landing .desc{margin:0;color:var(--muted);max-width:620px}
+  #pickBtn{
+    padding:22px 54px;font-size:20px;font-weight:600;border:none;border-radius:14px;color:#fff;
+    background:linear-gradient(135deg,#3f7dff,#6aa6ff);
+    box-shadow:0 10px 30px rgba(63,125,255,.35);transition:transform .15s,box-shadow .15s;
+  }
+  #pickBtn:hover{transform:translateY(-2px);box-shadow:0 14px 36px rgba(63,125,255,.45)}
+  #pickBtn:active{transform:translateY(0)}
+  .hint{color:var(--muted);font-size:13px;min-height:20px;max-width:620px}
+  .hint.err{color:#ff8080}
+  #dirInput{position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0}
+
+  /* ---------- 主界面 ---------- */
+  #app{display:none;height:100%;grid-template-columns:300px 1fr;grid-template-rows:minmax(0,1fr);overflow:hidden}
+  #app.on{display:grid}
+  aside{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .side-head{padding:14px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+  .root-name{font-weight:600;word-break:break-all}
+  .side-actions{display:flex;gap:8px}
+  .btn{flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel-2);color:var(--text);transition:.15s}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+  #search{width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel-2);color:var(--text);outline:none}
+  #search:focus{border-color:var(--accent)}
+
+  #tree{flex:1;min-height:0;overflow:auto;padding:8px 6px 24px}
+  #tree ul{list-style:none;margin:0;padding-left:14px}
+  #tree>ul{padding-left:0}
+  .row{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;cursor:pointer;user-select:none}
+  .row:hover{background:var(--panel-2)}
+  .row.active{background:var(--accent-soft);color:var(--accent)}
+  .caret{width:14px;flex:none;text-align:center;color:var(--muted);font-size:10px;transition:transform .15s}
+  .caret.open{transform:rotate(90deg)}
+  .caret.leaf{visibility:hidden}
+  .row .label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .count{flex:none;font-size:11px;color:var(--muted);background:var(--panel-2);border-radius:10px;padding:0 7px;line-height:18px}
+  .row.active .count{background:rgba(76,141,255,.22);color:var(--accent)}
+  li.collapsed>ul{display:none}
+
+  main{min-width:0;min-height:0;display:flex;flex-direction:column}
+  .main-head{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .crumb{font-weight:600}
+  .meta{color:var(--muted);font-size:13px}
+  #gallery{flex:1;min-height:0;overflow:auto;padding:18px}
+  .group{margin-bottom:26px}
+  .group-title{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin:0 0 10px;position:sticky;top:-18px;background:var(--bg);padding:6px 0;z-index:1}
+  .group-title .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:zoom-in;transition:.15s;display:flex;flex-direction:column}
+  .card:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .thumb{
+    min-height:180px;display:flex;align-items:center;justify-content:center;padding:12px;flex:1;
+    background:repeating-conic-gradient(#22262e 0% 25%,#1b1e24 0% 50%) 50%/18px 18px;
+  }
+  .thumb img{max-width:100%;max-height:180px;object-fit:contain}
+  .cap{padding:8px 10px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+
+  /* ---------- 大图预览 ---------- */
+  #lightbox{position:fixed;inset:0;background:rgba(8,9,12,.93);display:none;flex-direction:column;z-index:100}
+  #lightbox.on{display:flex}
+  .lb-head{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.1)}
+  .lb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lb-btn{padding:7px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#fff;text-decoration:none;font-size:13px}
+  .lb-btn:hover{background:rgba(255,255,255,.14)}
+  .lb-body{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:16px;overflow:hidden}
+  .lb-body img{width:100%;height:100%;object-fit:contain}
+</style>
+</head>
+<body>
+
+<!-- 引导页 -->
+<div id="landing">
+  <h1>SVG 图片批量查看工具</h1>
+  <p class="desc">选择一个文件夹，即可按树形结构浏览其中所有 SVG 图片（包含所有子文件夹）。图片仅在你的浏览器本地读取，不会上传到任何服务器。</p>
+  <button id="pickBtn">选择文件夹</button>
+  <p class="hint" id="hint"></p>
+  <input type="file" id="dirInput" webkitdirectory directory multiple />
+</div>
+
+<!-- 主界面 -->
+<div id="app">
+  <aside>
+    <div class="side-head">
+      <div class="root-name" id="rootName">—</div>
+      <div class="side-actions">
+        <button class="btn" id="repickBtn">重新选择文件夹</button>
+      </div>
+      <input type="search" id="search" placeholder="按文件名搜索…" />
+    </div>
+    <div id="tree"></div>
+  </aside>
+  <main>
+    <div class="main-head">
+      <span class="crumb" id="crumb">—</span>
+      <span class="meta" id="meta"></span>
+    </div>
+    <div id="gallery"></div>
+  </main>
+</div>
+
+<!-- 大图预览 -->
+<div id="lightbox">
+  <div class="lb-head">
+    <span class="lb-name" id="lbName"></span>
+    <a class="lb-btn" id="lbOpen" target="_blank" rel="noopener">新标签页打开</a>
+    <button class="lb-btn" id="lbClose">关闭 (Esc)</button>
+  </div>
+  <div class="lb-body"><img id="lbImg" alt="" /></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (s) { return document.querySelector(s); };
+  var SVG_RE = /\.svg$/i;
+  var state = { roots: [], current: null, urls: [] };
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function cmp(a, b) {
+    return a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true });
+  }
+  function prettyPath(p) { return p ? p.replace(/^\//, '') : ''; }
+
+  /* ================= 构建目录树 ================= */
+
+  function makeNode(name, path) {
+    return { name: name, path: path, children: [], files: [], count: 0, open: true };
+  }
+
+  // entries: [{ segments: ['根目录','子目录','a.svg'], file: File }]
+  function buildRoots(entries) {
+    var rootMap = new Map();
+
+    entries.forEach(function (entry) {
+      var segments = entry.segments;
+      var rootName = segments[0];
+      var root = rootMap.get(rootName);
+      if (!root) { root = makeNode(rootName, ''); rootMap.set(rootName, root); }
+
+      var node = root;
+      for (var i = 1; i < segments.length - 1; i++) {
+        var seg = segments[i];
+        var child = null;
+        for (var j = 0; j < node.children.length; j++) {
+          if (node.children[j].name === seg) { child = node.children[j]; break; }
+        }
+        if (!child) { child = makeNode(seg, node.path + '/' + seg); node.children.push(child); }
+        node = child;
+      }
+
+      var url = URL.createObjectURL(entry.file);
+      state.urls.push(url);
+      node.files.push({
+        name: segments[segments.length - 1],
+        path: node.path,
+        file: entry.file,
+        url: url
+      });
+    });
+
+    var roots = Array.from(rootMap.values());
+    roots.forEach(finalize);
+    return roots;
+  }
+
+  function finalize(node) {
+    node.children.sort(cmp);
+    node.files.sort(cmp);
+    node.children.forEach(finalize);
+    node.count = node.files.length + node.children.reduce(function (s, c) { return s + c.count; }, 0);
+  }
+
+  /* ================= 左侧树渲染 ================= */
+
+  function renderTree() {
+    var host = $('#tree');
+    host.innerHTML = '';
+    var rootUl = el('ul');
+    state.roots.forEach(function (r) { rootUl.appendChild(buildLi(r)); });
+    host.appendChild(rootUl);
+    updateActive();
+  }
+
+  function buildLi(node) {
+    var li = el('li');
+    var hasChildren = node.children.length > 0;
+
+    var row = el('div', 'row');
+    row.dataset.path = node.path;
+
+    var caret = el('span', 'caret' + (hasChildren ? '' : ' leaf'), '\u25B6');
+    if (hasChildren && node.open !== false) caret.classList.add('open');
+
+    row.appendChild(caret);
+    row.appendChild(el('span', 'folder-ico', '\uD83D\uDCC1'));
+    row.appendChild(el('span', 'label', node.name));
+    row.appendChild(el('span', 'count', String(node.count)));
+    li.appendChild(row);
+
+    if (hasChildren) {
+      var ul = el('ul');
+      node.children.forEach(function (c) { ul.appendChild(buildLi(c)); });
+      if (node.open === false) li.classList.add('collapsed');
+      li.appendChild(ul);
+
+      caret.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        node.open = node.open === false;
+        li.classList.toggle('collapsed', node.open === false);
+        caret.classList.toggle('open', node.open !== false);
+      });
+    }
+
+    row.addEventListener('click', function () { selectNode(node); });
+
+    node._li = li;
+    node._caret = caret;
+    return li;
+  }
+
+  function updateActive() {
+    var rows = document.querySelectorAll('#tree .row');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle('active', rows[i].dataset.path === (state.current ? state.current.path : null));
+    }
+  }
+
+  function selectNode(node) {
+    state.current = node;
+    if (node.children.length && node.open === false) {
+      node.open = true;
+      node._li.classList.remove('collapsed');
+      node._caret.classList.add('open');
+    }
+    updateActive();
+    renderGallery(node);
+  }
+
+  /* ================= 右侧图库渲染 ================= */
+
+  function renderGallery(node) {
+    var q = $('#search').value.trim().toLowerCase();
+    var groups = [];
+
+    (function walk(n) {
+      var files = q ? n.files.filter(function (f) { return f.name.toLowerCase().indexOf(q) >= 0; }) : n.files;
+      if (files.length) groups.push({ node: n, files: files });
+      n.children.forEach(walk);
+    })(node);
+
+    var total = groups.reduce(function (s, g) { return s + g.files.length; }, 0);
+
+    $('#crumb').textContent = node.path ? prettyPath(node.path) : node.name;
+    $('#meta').textContent = total + ' 张 SVG 图片 · ' + groups.length + ' 个文件夹';
+
+    var host = $('#gallery');
+    host.innerHTML = '';
+
+    if (!total) {
+      host.appendChild(el('div', 'empty', q ? '没有匹配的图片' : '该文件夹下没有 SVG 图片'));
+      return;
+    }
+
+    var showTitles = groups.length > 1;
+    groups.forEach(function (g) {
+      var sec = el('div', 'group');
+
+      if (showTitles) {
+        var title = el('div', 'group-title');
+        title.appendChild(el('span', 'dot'));
+        title.appendChild(el('span', null, g.node.path ? prettyPath(g.node.path) : g.node.name));
+        title.appendChild(el('span', null, '(' + g.files.length + ')'));
+        sec.appendChild(title);
+      }
+
+      var grid = el('div', 'grid');
+      g.files.forEach(function (f) { grid.appendChild(makeCard(f)); });
+      sec.appendChild(grid);
+      host.appendChild(sec);
+    });
+  }
+
+  function makeCard(f) {
+    var card = el('div', 'card');
+    var thumb = el('div', 'thumb');
+    var img = document.createElement('img');
+    img.src = f.url;
+    img.alt = f.name;
+    img.loading = 'lazy';
+    img.addEventListener('error', function () {
+      thumb.innerHTML = '';
+      thumb.appendChild(el('div', 'empty', '无法预览'));
+    });
+    thumb.appendChild(img);
+
+    var cap = el('div', 'cap', f.name);
+    cap.title = (f.path ? prettyPath(f.path) + '/' : '') + f.name;
+
+    card.appendChild(thumb);
+    card.appendChild(cap);
+    card.addEventListener('click', function () { openLightbox(f); });
+    return card;
+  }
+
+  /* ================= 大图预览 ================= */
+
+  function openLightbox(f) {
+    $('#lbName').textContent = f.name;
+    $('#lbImg').src = f.url;
+    $('#lbImg').alt = f.name;
+    var a = $('#lbOpen');
+    a.href = f.url;
+    a.setAttribute('download', f.name);
+    $('#lightbox').classList.add('on');
+  }
+
+  function closeLightbox() {
+    $('#lightbox').classList.remove('on');
+    $('#lbImg').removeAttribute('src');
+  }
+
+  $('#lbClose').addEventListener('click', closeLightbox);
+  $('#lightbox').addEventListener('click', function (e) {
+    if (e.target === this) closeLightbox();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeLightbox();
+  });
+
+  /* ================= 选择文件夹 ================= */
+
+  function pickFolder() {
+    var hint = $('#hint');
+    var input = $('#dirInput');
+    if (!('webkitdirectory' in input)) {
+      hint.textContent = '当前浏览器不支持文件夹选择，请使用 Chrome 或 Edge 打开本页面。';
+      hint.className = 'hint err';
+      return;
+    }
+    hint.textContent = '';
+    hint.className = 'hint';
+    input.value = '';
+    input.click();
+  }
+
+  $('#pickBtn').addEventListener('click', pickFolder);
+  $('#repickBtn').addEventListener('click', pickFolder);
+
+  $('#dirInput').addEventListener('change', function (e) {
+    var files = Array.prototype.slice.call(e.target.files || []);
+    var hint = $('#hint');
+    var entries = [];
+
+    files.forEach(function (f) {
+      if (!SVG_RE.test(f.name)) return;
+      var rel = (f.webkitRelativePath || f.name).split('/').filter(Boolean);
+      if (rel.length < 2) return;
+      entries.push({ segments: rel, file: f });
+    });
+
+    if (!entries.length) {
+      hint.textContent = '所选文件夹中没有找到 SVG 图片（请选择包含 SVG 文件的根文件夹）。';
+      hint.className = 'hint err';
+      return;
+    }
+
+    // 释放上一次的临时地址
+    state.urls.forEach(function (u) { URL.revokeObjectURL(u); });
+    state.urls = [];
+    state.current = null;
+
+    state.roots = buildRoots(entries);
+
+    $('#rootName').textContent = state.roots.length === 1
+      ? state.roots[0].name
+      : state.roots.map(function (r) { return r.name; }).join('、');
+
+    $('#search').value = '';
+    $('#landing').style.display = 'none';
+    $('#app').classList.add('on');
+
+    renderTree();
+    selectNode(state.roots[0]);
+  });
+
+  $('#search').addEventListener('input', function () {
+    if (state.current) renderGallery(state.current);
+  });
+})();
+</script>
+</body>
+</html>
