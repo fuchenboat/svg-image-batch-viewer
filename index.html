@@ -58,8 +58,21 @@
   .row.active .count{background:rgba(76,141,255,.22);color:var(--accent)}
   li.collapsed>ul{display:none}
 
+  /* ---------- 对比区（已选图片） ---------- */
+  .selbox{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+  .sel-row{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:7px;border:1px dashed var(--line);cursor:pointer;user-select:none;transition:.15s}
+  .sel-row:hover{background:var(--panel-2)}
+  .sel-row.active{background:var(--accent-soft);border:1px solid var(--accent);color:var(--accent)}
+  .sel-row.is-empty{cursor:default;opacity:.5}
+  .sel-row.is-empty:hover{background:transparent}
+  .sel-row .label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+  .sel-ico{flex:none;width:16px;text-align:center}
+  .btn.mini{flex:none;padding:6px 10px;font-size:12px}
+  .btn:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line);color:var(--muted)}
+
   main{min-width:0;min-height:0;display:flex;flex-direction:column}
-  .main-head{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .main-head{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .spacer{flex:1}
   .crumb{font-weight:600}
   .meta{color:var(--muted);font-size:13px}
   #gallery{flex:1;min-height:0;overflow:auto;padding:18px}
@@ -67,13 +80,33 @@
   .group-title{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin:0 0 10px;position:sticky;top:-18px;background:var(--bg);padding:6px 0;z-index:1}
   .group-title .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:zoom-in;transition:.15s;display:flex;flex-direction:column}
+  .card{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:zoom-in;transition:.15s;display:flex;flex-direction:column}
   .card:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .card.sel{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+  .card.sel .cap{color:var(--accent)}
   .thumb{
-    min-height:180px;display:flex;align-items:center;justify-content:center;padding:12px;flex:1;
+    position:relative;min-height:180px;display:flex;align-items:center;justify-content:center;padding:12px;flex:1;
     background:repeating-conic-gradient(#22262e 0% 25%,#1b1e24 0% 50%) 50%/18px 18px;
   }
   .thumb img{max-width:100%;max-height:180px;object-fit:contain}
+  .thumb .empty{padding:0}
+  /* 勾选框：外层 32x32 只做点击热区，内层 20x20 是可视方块 */
+  .pick{
+    position:absolute;top:4px;left:4px;width:32px;height:32px;padding:0;display:flex;align-items:center;justify-content:center;
+    border:0;background:transparent;cursor:pointer;pointer-events:none;opacity:0;transition:opacity .12s;
+  }
+  .pick-box{
+    width:20px;height:20px;display:flex;align-items:center;justify-content:center;line-height:1;font-size:13px;color:#fff;
+    border-radius:6px;border:1px solid rgba(255,255,255,.5);background:rgba(0,0,0,.5);transition:background .12s,border-color .12s;
+  }
+  .card:hover .pick,.card.sel .pick,.pick:focus-visible{opacity:1;pointer-events:auto}
+  .card.sel .pick-box{background:var(--accent);border-color:var(--accent)}
+  /* 批量选择模式：整张卡片可点即可勾选 */
+  body.select-mode .card{cursor:pointer}
+  body.select-mode .card .pick{opacity:1;pointer-events:auto}
+  .mode-hint{display:none;font-size:12px;color:var(--accent)}
+  body.select-mode .mode-hint{display:inline}
+  .btn.mini.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
   .cap{padding:8px 10px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .empty{padding:40px;text-align:center;color:var(--muted)}
 
@@ -109,12 +142,24 @@
       </div>
       <input type="search" id="search" placeholder="按文件名搜索…" />
     </div>
+    <div class="selbox">
+      <div class="sel-row is-empty" id="selRow" title="点击仅查看已选中的图片">
+        <span class="sel-ico">☑</span>
+        <span class="label">已选图片</span>
+        <span class="count" id="selCount">0</span>
+      </div>
+      <button class="btn" id="selClearBtn" disabled>清空已选</button>
+    </div>
     <div id="tree"></div>
   </aside>
   <main>
     <div class="main-head">
       <span class="crumb" id="crumb">—</span>
       <span class="meta" id="meta"></span>
+      <span class="spacer"></span>
+      <span class="mode-hint">点击任意图片即可勾选 / 取消</span>
+      <button class="btn mini" id="selectModeBtn" type="button" aria-pressed="false">批量选择</button>
+      <button class="btn mini" id="selectAllBtn" disabled>全选当前</button>
     </div>
     <div id="gallery"></div>
   </main>
@@ -136,7 +181,16 @@
 
   var $ = function (s) { return document.querySelector(s); };
   var SVG_RE = /\.svg$/i;
-  var state = { roots: [], current: null, urls: [] };
+  var state = {
+    roots: [],
+    current: null,
+    rootName: '',
+    urls: [],
+    selected: new Set(),   // 已选入对比的图片，跨文件夹保留
+    mode: 'folder',        // folder = 浏览某个文件夹；selected = 仅看已选
+    selectMode: false,     // 批量选择模式：点图片任意位置即勾选
+    lastFiles: []          // 当前视图可见的图片，供"全选当前"使用
+  };
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -249,84 +303,188 @@
   function updateActive() {
     var rows = document.querySelectorAll('#tree .row');
     for (var i = 0; i < rows.length; i++) {
-      rows[i].classList.toggle('active', rows[i].dataset.path === (state.current ? state.current.path : null));
+      var on = state.mode === 'folder' && rows[i].dataset.path === (state.current ? state.current.path : null);
+      rows[i].classList.toggle('active', on);
     }
+    var selRow = $('#selRow');
+    selRow.classList.toggle('active', state.mode === 'selected');
+    selRow.classList.toggle('is-empty', state.selected.size === 0);
   }
 
   function selectNode(node) {
+    state.mode = 'folder';
     state.current = node;
     if (node.children.length && node.open === false) {
       node.open = true;
       node._li.classList.remove('collapsed');
       node._caret.classList.add('open');
     }
+    renderGallery();
+  }
+
+  /* ================= 对比区（选中 / 仅看已选） ================= */
+
+  function showSelected() {
+    if (!state.selected.size) return;
+    state.mode = 'selected';
+    state.current = null;
+    renderGallery();
+  }
+
+  function toggleSelect(f) {
+    if (state.selected.has(f)) state.selected.delete(f);
+    else state.selected.add(f);
+    if (state.mode === 'selected') { renderGallery(); return; }
+    syncCards();
     updateActive();
-    renderGallery(node);
+    updateSelUI();
+  }
+
+  function syncCards() {
+    var cards = document.querySelectorAll('#gallery .card');
+    for (var i = 0; i < cards.length; i++) {
+      var f = cards[i]._file;
+      var on = state.selected.has(f);
+      cards[i].classList.toggle('sel', on);
+      var pick = cards[i].querySelector('.pick');
+      if (pick) pick.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+
+  function updateSelUI() {
+    var n = state.selected.size;
+    $('#selCount').textContent = String(n);
+    $('#selClearBtn').disabled = n === 0;
+
+    var files = state.lastFiles;
+    var allSel = files.length > 0 && files.every(function (f) { return state.selected.has(f); });
+    var btn = $('#selectAllBtn');
+    btn.textContent = allSel ? '取消全选' : '全选当前';
+    btn.disabled = state.mode === 'selected' || files.length === 0;
+  }
+
+  function updateModeUI() {
+    document.body.classList.toggle('select-mode', state.selectMode);
+    var btn = $('#selectModeBtn');
+    btn.textContent = state.selectMode ? '退出选择' : '批量选择';
+    btn.classList.toggle('on', state.selectMode);
+    btn.setAttribute('aria-pressed', state.selectMode ? 'true' : 'false');
   }
 
   /* ================= 右侧图库渲染 ================= */
 
-  function renderGallery(node) {
-    var q = $('#search').value.trim().toLowerCase();
-    var groups = [];
+  function searchQuery() { return $('#search').value.trim().toLowerCase(); }
 
+  function hits(f, q) { return !q || f.name.toLowerCase().indexOf(q) >= 0; }
+
+  // 某个文件夹节点下（含子文件夹）的分组
+  function collectGroups(node, q) {
+    var groups = [];
     (function walk(n) {
-      var files = q ? n.files.filter(function (f) { return f.name.toLowerCase().indexOf(q) >= 0; }) : n.files;
-      if (files.length) groups.push({ node: n, files: files });
+      var files = q ? n.files.filter(function (f) { return hits(f, q); }) : n.files;
+      if (files.length) groups.push({ path: n.path, files: files });
       n.children.forEach(walk);
     })(node);
+    return groups;
+  }
 
+  // 已选图片按所属文件夹分组
+  function selectionGroups(q) {
+    var map = new Map();
+    state.selected.forEach(function (f) {
+      if (!hits(f, q)) return;
+      var g = map.get(f.path);
+      if (!g) { g = { path: f.path, files: [] }; map.set(f.path, g); }
+      g.files.push(f);
+    });
+    return Array.from(map.values());
+  }
+
+  function groupTitle(path) {
+    return path ? prettyPath(path) : (state.rootName || '根目录');
+  }
+
+  function renderGallery() {
+    if (state.mode === 'folder' && !state.current) return;
+
+    var q = searchQuery();
+    var groups = state.mode === 'selected' ? selectionGroups(q) : collectGroups(state.current, q);
     var total = groups.reduce(function (s, g) { return s + g.files.length; }, 0);
 
-    $('#crumb').textContent = node.path ? prettyPath(node.path) : node.name;
+    $('#crumb').textContent = state.mode === 'selected' ? '已选图片' : groupTitle(state.current.path);
     $('#meta').textContent = total + ' 张 SVG 图片 · ' + groups.length + ' 个文件夹';
 
     var host = $('#gallery');
     host.innerHTML = '';
 
     if (!total) {
-      host.appendChild(el('div', 'empty', q ? '没有匹配的图片' : '该文件夹下没有 SVG 图片'));
-      return;
+      var msg = '该文件夹下没有 SVG 图片';
+      if (q) msg = '没有匹配的图片';
+      else if (state.mode === 'selected') msg = '尚未选中任何图片，点击图片左上角勾选框即可加入对比';
+      host.appendChild(el('div', 'empty', msg));
+    } else {
+      var showTitles = groups.length > 1;
+      groups.forEach(function (g) {
+        var sec = el('div', 'group');
+
+        if (showTitles) {
+          var title = el('div', 'group-title');
+          title.appendChild(el('span', 'dot'));
+          title.appendChild(el('span', null, groupTitle(g.path)));
+          title.appendChild(el('span', null, '(' + g.files.length + ')'));
+          sec.appendChild(title);
+        }
+
+        var grid = el('div', 'grid');
+        g.files.forEach(function (f) { grid.appendChild(makeCard(f)); });
+        sec.appendChild(grid);
+        host.appendChild(sec);
+      });
     }
 
-    var showTitles = groups.length > 1;
-    groups.forEach(function (g) {
-      var sec = el('div', 'group');
-
-      if (showTitles) {
-        var title = el('div', 'group-title');
-        title.appendChild(el('span', 'dot'));
-        title.appendChild(el('span', null, g.node.path ? prettyPath(g.node.path) : g.node.name));
-        title.appendChild(el('span', null, '(' + g.files.length + ')'));
-        sec.appendChild(title);
-      }
-
-      var grid = el('div', 'grid');
-      g.files.forEach(function (f) { grid.appendChild(makeCard(f)); });
-      sec.appendChild(grid);
-      host.appendChild(sec);
-    });
+    state.lastFiles = groups.reduce(function (acc, g) { return acc.concat(g.files); }, []);
+    updateActive();
+    updateSelUI();
   }
 
   function makeCard(f) {
     var card = el('div', 'card');
+    card._file = f;
+    if (state.selected.has(f)) card.classList.add('sel');
+
     var thumb = el('div', 'thumb');
     var img = document.createElement('img');
     img.src = f.url;
     img.alt = f.name;
     img.loading = 'lazy';
     img.addEventListener('error', function () {
-      thumb.innerHTML = '';
+      img.remove();
       thumb.appendChild(el('div', 'empty', '无法预览'));
     });
+
+    var pick = el('button', 'pick');
+    pick.type = 'button';
+    pick.title = '选中 / 取消选中（加入对比）';
+    pick.setAttribute('aria-label', '选中 / 取消选中（加入对比）');
+    pick.setAttribute('aria-pressed', state.selected.has(f) ? 'true' : 'false');
+    pick.appendChild(el('span', 'pick-box', '\u2713'));
+    pick.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      toggleSelect(f);
+    });
+
     thumb.appendChild(img);
+    thumb.appendChild(pick);
 
     var cap = el('div', 'cap', f.name);
     cap.title = (f.path ? prettyPath(f.path) + '/' : '') + f.name;
 
     card.appendChild(thumb);
     card.appendChild(cap);
-    card.addEventListener('click', function () { openLightbox(f); });
+    card.addEventListener('click', function () {
+      if (state.selectMode) { toggleSelect(f); return; }
+      openLightbox(f);
+    });
     return card;
   }
 
@@ -353,6 +511,36 @@
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') closeLightbox();
+  });
+
+  /* ================= 对比区交互 ================= */
+
+  $('#selRow').addEventListener('click', showSelected);
+
+  $('#selectModeBtn').addEventListener('click', function () {
+    state.selectMode = !state.selectMode;
+    updateModeUI();
+  });
+
+  $('#selClearBtn').addEventListener('click', function () {
+    state.selected.clear();
+    if (state.mode === 'selected') { selectNode(state.roots[0]); return; }
+    syncCards();
+    updateActive();
+    updateSelUI();
+  });
+
+  $('#selectAllBtn').addEventListener('click', function () {
+    var files = state.lastFiles;
+    if (!files.length) return;
+    var allSel = files.every(function (f) { return state.selected.has(f); });
+    files.forEach(function (f) {
+      if (allSel) state.selected.delete(f);
+      else state.selected.add(f);
+    });
+    syncCards();
+    updateActive();
+    updateSelUI();
   });
 
   /* ================= 选择文件夹 ================= */
@@ -396,12 +584,16 @@
     state.urls.forEach(function (u) { URL.revokeObjectURL(u); });
     state.urls = [];
     state.current = null;
+    state.mode = 'folder';
+    state.selected = new Set();
+    state.lastFiles = [];
 
     state.roots = buildRoots(entries);
 
     $('#rootName').textContent = state.roots.length === 1
       ? state.roots[0].name
       : state.roots.map(function (r) { return r.name; }).join('、');
+    state.rootName = state.roots.length === 1 ? state.roots[0].name : '';
 
     $('#search').value = '';
     $('#landing').style.display = 'none';
@@ -412,7 +604,7 @@
   });
 
   $('#search').addEventListener('input', function () {
-    if (state.current) renderGallery(state.current);
+    renderGallery();
   });
 })();
 </script>
